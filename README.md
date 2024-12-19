@@ -4,17 +4,17 @@ This Python script fetches and plots the historical spot prices of AWS EC2 insta
 
 ## Features
 
--     Fetches spot price history for a specified EC2 instance type across various AWS regions.
--     Allows filtering of data based on the number of days.
--     Displays prices in a graph for easy comparison.
--     Outputs average and latest prices for each region.
--     Identifies the best current spot price across specified regions.
+- Fetches spot price history for a specified EC2 instance type across various AWS regions.
+- Allows filtering of data based on the number of days.
+- Displays prices in a graph for easy comparison.
+- Outputs average and latest prices for each region.
+- Identifies the best current spot price across specified regions.
 
 ## Prerequisites
 
--     Python 3.x
--     AWS account with appropriate permissions to access EC2 spot price data.
--     AWS CLI configured with a profile that has access to the EC2 service.
+- Python 3.x
+- AWS account with appropriate permissions to access EC2 spot price data.
+- AWS CLI configured with a profile that has access to the EC2 service.
 
 ## Installation
 
@@ -41,10 +41,10 @@ Run the script using the following command:
 python spotter.py [days] [regions] --instance_type [instance_type] --profile [profile_name]
 ```
 
--     **days**: (Optional) Number of days to show in the graph (default: 30).
--     **regions**: (Optional) AWS region(s) to fetch data from (default: `ap-south-1`). Use `all` to fetch data from all available regions.
--     **--instance_type**: (Optional) Specify the EC2 instance type (default: `t3.medium`).
--     **--profile**: (Optional) Specify the AWS profile name (default: `default`).
+- **days**: (Optional) Number of days to show in the graph (default: 30).
+- **regions**: (Optional) AWS region(s) to fetch data from (default: `ap-south-1`). Use `all` to fetch data from all available regions.
+- **--instance_type**: (Optional) Specify the EC2 instance type (default: `t3.medium`).
+- **--profile**: (Optional) Specify the AWS profile name (default: `default`).
 
 ### Example Commands
 
@@ -84,13 +84,13 @@ While data is being fetched, a loading animation will be displayed in the termin
 
 ## Notes
 
--     Ensure your AWS credentials are configured correctly in the AWS CLI. You can set up your profile using:
+- Ensure your AWS credentials are configured correctly in the AWS CLI. You can set up your profile using:
 
    ```bash
    aws configure --profile an-dev-sso
    ```
 
--     The script uses the `default` profile by default. Change this in the script if you use a different profile name.
+- The script uses the `default` profile by default. Change this in the script if you use a different profile name.
 
 ## License
 
