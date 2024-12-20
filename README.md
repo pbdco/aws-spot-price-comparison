@@ -1,6 +1,6 @@
 # AWS Spotter: EC2 Spot Price Tracker
-
-This Python script fetches and plots the historical spot prices of AWS EC2 instances across multiple regions. It utilizes the Boto3 library to interact with AWS services and Matplotlib for data visualization.
+Search, compare and find the cheapest AZ for your spot instances. This Python script fetches and plots the historical spot prices of AWS EC2 instances across multiple regions. 
+It utilizes the Boto3 library to interact with AWS services and Matplotlib for data visualization.
 
    ```bash
    # Compare prices between major regions for a compute-optimized instance
