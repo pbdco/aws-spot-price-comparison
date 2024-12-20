@@ -4,7 +4,7 @@ This Python script fetches and plots the historical spot prices of AWS EC2 insta
 
    ```bash
    # Compare prices between major regions for a compute-optimized instance
-   python spotter.py --regions us-east-1,eu-west-1,ap-south-1 --instance-type c5.xlarge
+   python aws_spotter.py --regions us-east-1,eu-west-1,ap-south-1 --instance-type c5.xlarge
    ```
 
    ![image](https://github.com/user-attachments/assets/3e0abcab-e334-4366-a8da-dd15f7016936)
@@ -49,7 +49,7 @@ The script can be run in two modes: interactive (default) with graphs and detail
 ### Basic Command Structure
 
 ```bash
-python spotter.py [OPTIONS]
+python aws_spotter.py [OPTIONS]
 ```
 
 ### Options
@@ -69,25 +69,25 @@ python spotter.py [OPTIONS]
 - **Find the cheapest region for your instance type:**
    ```bash
    # Search across all AWS regions for the lowest t3a.medium spot price
-   python spotter.py --regions all --instance-type t3a.medium
+   python aws_spotter.py --regions all --instance-type t3a.medium
    ```
 
 - **Compare specific regions:**
    ```bash
    # Compare prices between major regions for a compute-optimized instance
-   python spotter.py --regions us-east-1,eu-west-1,ap-south-1 --instance-type c5.xlarge
+   python aws_spotter.py --regions us-east-1,eu-west-1,ap-south-1 --instance-type c5.xlarge
    ```
 
 - **Analyze Availability Zones price trends in a single region:**
    ```bash
    # View detailed pricing across all AZs in us-east-1
-   python spotter.py --regions us-east-1 --detailed
+   python aws_spotter.py --regions us-east-1 --detailed
    ```
 
 - **Quick price check for automation:**
    ```bash
    # Get JSON output for automated decision making
-   python spotter.py --json --instance-type t3a.medium --regions us-east-1,eu-west-1
+   python aws_spotter.py --json --instance-type t3a.medium --regions us-east-1,eu-west-1
    ```
    
    Output:
@@ -104,21 +104,20 @@ python spotter.py [OPTIONS]
 - **Historical price analysis:**
    ```bash
    # Check price trends over the last 90 days
-   python spotter.py --days 90 --regions us-east-1 --instance-type m5.xlarge
+   python aws_spotter.py --days 90 --regions us-east-1 --instance-type m5.xlarge
    ```
 
 - **Multi-region deployment planning:**
    ```bash
    # Compare prices in regions with low latency to Asia
-   python spotter.py --regions ap-southeast-1,ap-northeast-1,ap-south-1 --instance-type r5.2xlarge
+   python aws_spotter.py --regions ap-southeast-1,ap-northeast-1,ap-south-1 --instance-type r5.2xlarge
    ```
 
 - **Quick current price check:**
     ```bash
     # Get just today's prices for a specific region
-    python spotter.py --days 1 --regions us-east-1 --instance-type t3.medium
+    python aws_spotter.py --days 1 --regions us-east-1 --instance-type t3.medium
     ```
-
 
 The interactive mode provides visual graphs and detailed information, while the JSON mode is perfect for automation and scripting. Use `--detailed` when you need to see prices for individual Availability Zones, which is especially useful for high-availability deployments.
 
