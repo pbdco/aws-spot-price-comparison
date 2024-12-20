@@ -13,6 +13,18 @@ This Python script fetches and plots the historical spot prices of AWS EC2 insta
  
    ![image](https://github.com/user-attachments/assets/f48f503c-33b8-4015-ab50-aebb18dbb583)
 
+   Optional output in JSON format with --json parameter. Ideal for automation:
+   
+   ```json
+   {
+     "lowestPrice": 0.01850,
+     "availabilityZone": "us-west-1a",
+     "region": "us-west-1",
+     "instanceType": "t3a.medium",
+     "lastUpdated": "2024-12-19 22:31:26"
+   }
+   ```
+
 ## Features
 
 - Fetches spot price history for any EC2 instance type across AWS regions
