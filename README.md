@@ -9,11 +9,15 @@ It utilizes the Boto3 library to interact with AWS services and Matplotlib for d
 
    ![image](https://github.com/user-attachments/assets/3e0abcab-e334-4366-a8da-dd15f7016936)
 
-   Shows the best (lowest) price between the selected regions:
+   **Shows the best (lowest) price between the selected regions:**
  
    ![image](https://github.com/user-attachments/assets/f48f503c-33b8-4015-ab50-aebb18dbb583)
 
-   Optional output in JSON format with --json parameter. Ideal for automation:
+   **Ranking AZ list with latest prices:**
+
+   ![image](https://github.com/user-attachments/assets/393c270f-67e4-4780-8315-102f32feefaa)
+
+   **Optional output in JSON format with --json parameter. Ideal for automation:**
    
    ```json
    {
