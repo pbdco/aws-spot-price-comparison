@@ -84,33 +84,27 @@ python aws_spotter.py [OPTIONS]
    python aws_spotter.py --regions all --instance-type t3a.medium
    ```
 
-- **Compare specific regions:**
-   ```bash
-   # Compare prices between major regions for a compute-optimized instance
-   python aws_spotter.py --regions us-east-1,eu-west-1,ap-south-1 --instance-type c5.xlarge
-   ```
-
-- **Analyze Availability Zones price trends in a single region:**
-   ```bash
-   # View detailed pricing across all AZs in us-east-1
-   python aws_spotter.py --regions us-east-1 --detailed
-   ```
-
-- **Quick price check for automation:**
+- **Quick price check for automation. Find the chepeast AZ across all the regions:**
    ```bash
    # Get JSON output for automated decision making
-   python aws_spotter.py --json --instance-type t3a.medium --regions us-east-1,eu-west-1
+   python aws_spotter.py --regions all --instance-type t3.nano --json 
    ```
    
    Output:
    ```json
    {
-     "lowestPrice": 0.0103,
-     "availabilityZone": "ap-south-1b",
-     "region": "ap-south-1",
-     "instanceType": "t3a.medium",
-     "lastUpdated": "2024-12-19 22:16:19"
+     "lowestPrice": 0.0011,
+     "availabilityZone": "ap-northeast-2c",
+     "region": "ap-northeast-2",
+     "instanceType": "t3.nano",
+     "lastUpdated": "2024-12-20 01:31:27"
    }
+   ```
+
+- **Compare specific regions:**
+   ```bash
+   # Compare prices between major regions for a compute-optimized instance
+   python aws_spotter.py --regions us-east-1,eu-west-1,ap-south-1 --instance-type c5.xlarge
    ```
 
 - **Historical price analysis:**
@@ -130,6 +124,16 @@ python aws_spotter.py [OPTIONS]
     # Get just today's prices for a specific region
     python aws_spotter.py --days 1 --regions us-east-1 --instance-type t3.medium
     ```
+
+- **Analyze Availability Zones price trends in a single region:**
+   ```bash
+   # View detailed pricing across all AZs in us-east-1
+   python aws_spotter.py --regions us-west-1 --detailed
+   ```
+   
+   Example:
+   ![image](https://github.com/user-attachments/assets/ea3002a9-87db-49e2-afb3-99446fed43ad)
+
 
 The interactive mode provides visual graphs and detailed information, while the JSON mode is perfect for automation and scripting. Use `--detailed` when you need to see prices for individual Availability Zones, which is especially useful for high-availability deployments.
 
