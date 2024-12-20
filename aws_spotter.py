@@ -250,10 +250,10 @@ class SpotPriceAnalyzer:
             if not self.config.json_mode:
                 self.stop_loading_animation()
 
-                print(f"\n{BLUE}{'='*80}{RESET}")
+                print(f"\n{BLUE}{'-'*80}{RESET}")
                 print(f"{BOLD}EC2 Spot Price History - {self.config.instance_type}{RESET}")
                 print(f"{CYAN}Last {self.config.days} days of price data{RESET}")
-                print(f"{BLUE}{'='*80}{RESET}\n")
+                print(f"{BLUE}{'-'*80}{RESET}\n")
 
             best_price = float('inf')
             best_price_region = None
@@ -280,7 +280,7 @@ class SpotPriceAnalyzer:
                     print(f"{CYAN}{'Latest Price:':<15}{RESET} ${latest_price:.5f} in {latest_zone}")
                     print(f"{YELLOW}{'-'*40}{RESET}")
 
-                if prices[-1] < best_price:
+                if prices[-1] < best_price or (prices[-1] == best_price and timestamps[-1] > best_price_timestamp):
                     best_price = prices[-1]
                     best_price_region = region
                     best_price_zone = zones[-1]
@@ -297,14 +297,49 @@ class SpotPriceAnalyzer:
                     }
                     print(json.dumps(result, indent=2))
                 else:
+                    # Add ranking list if multiple regions are selected
+                    if len(regions_with_data) > 1:
+                        # Collect latest prices from all zones
+                        az_latest_prices = {}  # Dictionary to store latest price per AZ
+                        for region in regions_with_data:
+                            timestamps, prices, zones = region_data[region]
+                            for i in range(len(prices)):
+                                zone = zones[i]
+                                # Update only if this is a more recent price for this AZ
+                                if zone not in az_latest_prices or timestamps[i] > az_latest_prices[zone]['timestamp']:
+                                    az_latest_prices[zone] = {
+                                        'price': prices[i],
+                                        'timestamp': timestamps[i]
+                                    }
+                        
+                        # Convert dictionary to list and sort by price (ascending) and timestamp (descending)
+                        sorted_zones = [
+                            {'zone': zone, 'price': info['price'], 'timestamp': info['timestamp']}
+                            for zone, info in az_latest_prices.items()
+                        ]
+                        sorted_zones.sort(key=lambda x: (x['price'], -x['timestamp'].timestamp()))
+                        
+                        # Display ranking
+                        print(f"\n{BOLD}Availability Zone Ranking (Latest Prices){RESET}")
+                        print(f"{YELLOW}{'-'*80}{RESET}")
+                        print(f"{BOLD}{'Price':<15} {'Availability Zone':<35} {'Last Updated':<30}{RESET}")
+                        print(f"{YELLOW}{'-'*80}{RESET}")
+                        
+                        for zone_info in sorted_zones:
+                            print(f"${zone_info['price']:<14.5f} {zone_info['zone']:<35} {zone_info['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}")
+                        
+                        print(f"{YELLOW}{'-'*80}{RESET}")
+
+                    # Display best price after the ranking
                     print(f"\n{BLUE}{'='*80}{RESET}")
                     print(f"{BOLD}Best current price for {self.config.instance_type}:{RESET}")
-                    print(f"{GREEN}${best_price:.5f}{RESET} in {CYAN}{best_price_region} [AZ: {best_price_zone}]{RESET}")
-                    print(f"{YELLOW}Last updated: {best_price_timestamp.strftime('%Y-%m-%d %H:%M:%S')}{RESET}")
+                    print(f"${best_price:.5f} in {best_price_zone} ({best_price_region})")
+                    print(f"Last updated: {best_price_timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
                     print(f"{BLUE}{'='*80}{RESET}")
 
-                    print(f"\n{CYAN}Opening price comparison graph...{RESET}")
-                    self.plot_spot_prices(region_data)
+                    if not self.config.json_mode:
+                        print("\nOpening price comparison graph...")
+                        self.plot_spot_prices(region_data)
 
         except AWSError as e:
             logging.error(str(e))
@@ -483,7 +518,7 @@ def main():
     parser.add_argument('--profile', type=str, default=DEFAULT_PROFILE,
                       help=f'AWS profile name (default: {DEFAULT_PROFILE})')
     parser.add_argument('--detailed', action='store_true',
-                      help='Show individual AZ prices instead of region averages')
+                      help='Show all availability zones (default: show only cheapest AZ per region)')
     parser.add_argument('--json', action='store_true',
                       help='Output results in JSON format')
 
