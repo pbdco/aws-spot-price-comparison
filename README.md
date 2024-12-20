@@ -2,98 +2,157 @@
 
 This Python script fetches and plots the historical spot prices of AWS EC2 instances across multiple regions. It utilizes the Boto3 library to interact with AWS services and Matplotlib for data visualization.
 
+   ```bash
+   # Compare prices between major regions for a compute-optimized instance
+   python spotter.py --regions us-east-1,eu-west-1,ap-south-1 --instance-type c5.xlarge
+   ```
+
+   ![image](https://github.com/user-attachments/assets/3e0abcab-e334-4366-a8da-dd15f7016936)
+
+   Shows the best (lowest) price between the selected regions:
+ 
+   ![image](https://github.com/user-attachments/assets/f48f503c-33b8-4015-ab50-aebb18dbb583)
+
 ## Features
 
-- Fetches spot price history for a specified EC2 instance type across various AWS regions.
-- Allows filtering of data based on the number of days.
-- Displays prices in a graph for easy comparison.
-- Outputs average and latest prices for each region.
-- Identifies the best current spot price across specified regions.
+- Fetches spot price history for any EC2 instance type across AWS regions
+- Interactive mode with visual graphs and detailed price information
+- JSON output mode for programmatic use and automation
+- Supports single or multiple region comparison
+- Displays current lowest price across all specified regions
+- Shows price trends with interactive matplotlib graphs
+- Supports AWS profiles for different credentials
 
 ## Prerequisites
 
 - Python 3.x
-- AWS account with appropriate permissions to access EC2 spot price data.
-- AWS CLI configured with a profile that has access to the EC2 service.
+- AWS account with EC2 spot price data access permissions
+- AWS CLI configured with appropriate credentials
 
 ## Installation
 
-1. **Clone the repository:**
-
+1. Clone the repository:
    ```bash
    git clone <repository-url>
-   cd <repository-folder>
+   cd spot-pricing-graph
    ```
 
-2. **Install required packages:**
-
-   You will need to install the following Python packages:
-
+2. Install required packages:
    ```bash
-   pip install boto3 pandas matplotlib python-dateutil
+   pip install boto3 matplotlib
    ```
 
 ## Usage
 
-Run the script using the following command:
+The script can be run in two modes: interactive (default) with graphs and detailed output, or JSON mode for automation.
+
+### Basic Command Structure
 
 ```bash
-python spotter.py [days] [regions] --instance_type [instance_type] --profile [profile_name]
+python spotter.py [OPTIONS]
 ```
 
-- **days**: (Optional) Number of days to show in the graph (default: 30).
-- **regions**: (Optional) AWS region(s) to fetch data from (default: `ap-south-1`). Use `all` to fetch data from all available regions.
-- **--instance_type**: (Optional) Specify the EC2 instance type (default: `t3.medium`).
-- **--profile**: (Optional) Specify the AWS profile name (default: `default`).
+### Options
 
-### Example Commands
+- `--days NUMBER`: Number of days of price history (default: 30)
+- `--instance-type TYPE`: EC2 instance type (default: t3.medium)
+- `--regions REGIONS`: AWS regions to analyze. Can be:
+  - Single region: `us-east-1`
+  - Multiple regions (comma-separated, no spaces): `us-east-1,eu-west-1,ap-south-1`
+  - All regions: `all`
+- `--profile NAME`: AWS profile name (default: default)
+- `--json`: Output results in JSON format for automation
+- `--detailed`: Show individual Availability Zone prices (automatically enabled for single region)
 
-1. Fetch spot prices for the default instance type in the default region for the last 30 days:
+### Examples and Use Cases
 
+- **Find the cheapest region for your instance type:**
    ```bash
-   python spotter.py
+   # Search across all AWS regions for the lowest t3a.medium spot price
+   python spotter.py --regions all --instance-type t3a.medium
    ```
 
-2. Fetch spot prices for `t3.micro` in the `us-east-1` and `eu-west-1` regions for the last 14 days:
-
+- **Compare specific regions:**
    ```bash
-   python spotter.py 14 us-east-1 eu-west-1 --instance_type t3.micro
+   # Compare prices between major regions for a compute-optimized instance
+   python spotter.py --regions us-east-1,eu-west-1,ap-south-1 --instance-type c5.xlarge
    ```
 
-3. Fetch spot prices for all regions for the last 7 days using the default profile:
-
+- **Analyze Availability Zones price trends in a single region:**
    ```bash
-   python spotter.py 7 all
+   # View detailed pricing across all AZs in us-east-1
+   python spotter.py --regions us-east-1 --detailed
    ```
 
-4. Fetch spot prices for the last 30 days using a specific profile:
-
+- **Quick price check for automation:**
    ```bash
-   python spotter.py --profile my-profile
+   # Get JSON output for automated decision making
+   python spotter.py --json --instance-type t3a.medium --regions us-east-1,eu-west-1
+   ```
+   
+   Output:
+   ```json
+   {
+     "lowestPrice": 0.0103,
+     "availabilityZone": "ap-south-1b",
+     "region": "ap-south-1",
+     "instanceType": "t3a.medium",
+     "lastUpdated": "2024-12-19 22:16:19"
+   }
    ```
 
-## Output
-
-The script will print the date and spot prices for each specified region to the console. It will also display the average and latest prices, as well as the best current price across regions.
-
-A plot will be generated showing the spot prices over time for the specified instance type across the selected regions.
-
-## Loading Animation
-
-While data is being fetched, a loading animation will be displayed in the terminal to indicate progress.
-
-## Notes
-
-- Ensure your AWS credentials are configured correctly in the AWS CLI. You can set up your profile using:
-
+- **Historical price analysis:**
    ```bash
-   aws configure --profile an-dev-sso
+   # Check price trends over the last 90 days
+   python spotter.py --days 90 --regions us-east-1 --instance-type m5.xlarge
    ```
 
-- The script uses the `default` profile by default. Change this in the script if you use a different profile name.
+- **Multi-region deployment planning:**
+   ```bash
+   # Compare prices in regions with low latency to Asia
+   python spotter.py --regions ap-southeast-1,ap-northeast-1,ap-south-1 --instance-type r5.2xlarge
+   ```
 
-## License
+- **Quick current price check:**
+    ```bash
+    # Get just today's prices for a specific region
+    python spotter.py --days 1 --regions us-east-1 --instance-type t3.medium
+    ```
 
-This project is licensed under the MIT License. See the LICENSE file for details.
 
-You can modify the content as needed to fit your project and preferences!
+The interactive mode provides visual graphs and detailed information, while the JSON mode is perfect for automation and scripting. Use `--detailed` when you need to see prices for individual Availability Zones, which is especially useful for high-availability deployments.
+
+## Output Modes
+
+### Interactive Mode (Default)
+- Displays a graph comparing spot prices across selected regions
+- Shows the current lowest price and its location
+- Provides average and latest prices for each region
+- When using `--detailed` or single region, shows prices per Availability Zone
+- Interactive matplotlib graph with zoom and pan capabilities
+- Press Enter to exit after viewing the graph
+
+### JSON Mode
+- Silent operation (no progress output)
+- Returns only the lowest price information in JSON format
+- Ideal for automation and scripting
+- Exits with status code 1 on errors
+- No graphs or visual elements
+
+## Error Handling
+
+- Validates AWS regions before processing
+- Checks AWS credentials and provides helpful error messages
+- Handles network issues gracefully
+- Clear error messages for troubleshooting
+
+## AWS Credentials
+
+The script uses the AWS credentials configured in your system. You can:
+1. Use the default profile: `aws configure`
+2. Use a specific profile: `--profile your-profile-name`
+3. For SSO profiles: `aws sso login --profile your-profile-name`
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
