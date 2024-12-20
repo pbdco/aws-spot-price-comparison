@@ -51,7 +51,7 @@ This Python script fetches and plots the historical spot prices of AWS EC2 insta
 
 2. Install required packages:
    ```bash
-   pip install boto3 matplotlib
+   pip install boto3 matplotlib pandas
    ```
 
 ## Usage
