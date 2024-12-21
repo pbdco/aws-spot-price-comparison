@@ -64,6 +64,7 @@ class SpotPriceConfig:
     profile: str
     detailed: bool
     json_mode: bool
+    no_graph: bool
 
     def __post_init__(self):
         if self.regions is None:
@@ -344,8 +345,9 @@ class SpotPriceAnalyzer:
                         print(f"Last updated: {best_zone_info['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}")
                         print(f"{BLUE}{'='*80}{RESET}")
 
-                    if not self.config.json_mode:
-                        print("\nOpening price comparison graph...")
+                    if not self.config.no_graph:
+                        if not self.config.json_mode:
+                            print("\nOpening price comparison graph...")
                         self.plot_spot_prices(region_data)
 
         except AWSError as e:
@@ -512,6 +514,7 @@ def main():
               %(prog)s --detailed                              # Show individual AZ prices
               %(prog)s --days 30 --regions eu-west-1,us-east-1 # Last 30 days in multiple regions
               %(prog)s --json                                  # Output JSON data for programmatic use
+              %(prog)s --no-graph                              # Do not display the price graph
         """)
     )
 
@@ -528,6 +531,8 @@ def main():
                       help='Show all availability zones (default: show only cheapest AZ per region)')
     parser.add_argument('--json', action='store_true',
                       help='Output results in JSON format')
+    parser.add_argument('--no-graph', action='store_true',
+                      help='Do not display the price graph')
 
     try:
         args = parser.parse_args()
@@ -546,7 +551,8 @@ def main():
             regions=parse_regions(args.regions, args.profile),
             profile=args.profile,
             detailed=args.detailed,
-            json_mode=args.json
+            json_mode=args.json,
+            no_graph=args.no_graph
         )
 
         if config.days <= 0:
