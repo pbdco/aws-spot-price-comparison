@@ -309,15 +309,20 @@ class SpotPriceAnalyzer:
                                 if zone not in az_latest_prices or timestamps[i] > az_latest_prices[zone]['timestamp']:
                                     az_latest_prices[zone] = {
                                         'price': prices[i],
-                                        'timestamp': timestamps[i]
+                                        'timestamp': timestamps[i],
+                                        'region': region
                                     }
                         
                         # Convert dictionary to list and sort by price (ascending) and timestamp (descending)
                         sorted_zones = [
-                            {'zone': zone, 'price': info['price'], 'timestamp': info['timestamp']}
+                            {'zone': zone, 'price': info['price'], 'timestamp': info['timestamp'], 'region': info['region']}
                             for zone, info in az_latest_prices.items()
                         ]
-                        sorted_zones.sort(key=lambda x: (x['price'], -x['timestamp'].timestamp()))
+                        sorted_zones.sort(key=lambda x: (
+                            x['price'],                    # First by price (ascending)
+                            -x['timestamp'].timestamp(),   # Then by timestamp (newest first)
+                            x['zone']                     # Then by AZ name (alphabetically)
+                        ))
                         
                         # Display ranking
                         print(f"\n{BOLD}Availability Zone Ranking (Latest Prices){RESET}")
@@ -330,12 +335,14 @@ class SpotPriceAnalyzer:
                         
                         print(f"{YELLOW}{'-'*80}{RESET}")
 
-                    # Display best price after the ranking
-                    print(f"\n{BLUE}{'='*80}{RESET}")
-                    print(f"{BOLD}Best current price for {self.config.instance_type}:{RESET}")
-                    print(f"${best_price:.5f} in {best_price_zone} ({best_price_region})")
-                    print(f"Last updated: {best_price_timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
-                    print(f"{BLUE}{'='*80}{RESET}")
+                        # Display best price after the ranking
+                        print(f"\n{BLUE}{'='*80}{RESET}")
+                        print(f"{BOLD}Best current price for {self.config.instance_type}:{RESET}")
+                        # Use the first entry from sorted_zones since it's already sorted by price, timestamp, and AZ name
+                        best_zone_info = sorted_zones[0]
+                        print(f"${best_zone_info['price']:.5f} in {best_zone_info['zone']} ({best_zone_info['region']})")
+                        print(f"Last updated: {best_zone_info['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}")
+                        print(f"{BLUE}{'='*80}{RESET}")
 
                     if not self.config.json_mode:
                         print("\nOpening price comparison graph...")
