@@ -243,11 +243,13 @@ cd aws-spot-price-comparison
 docker build -t aws-spotter -f docker/Dockerfile .
 ```
 
-## IAM Required Permissions
+
+## AWS IAM Required Permissions
 
 The tool requires minimal AWS IAM permissions to function:
 
-### Required EC2 Permissions
+### Required Permissions policy:
+
 ```json
 {
     "Version": "2012-10-17",
@@ -284,7 +286,6 @@ The tool requires minimal AWS IAM permissions to function:
 - Never commit credentials to version control
 - Use environment variables or AWS credentials file
 - Follow principle of least privilege
-
 
 ## Contributing
 
