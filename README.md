@@ -183,8 +183,7 @@ The AWS Spot Price Comparison tool is available as a Docker image on Docker Hub:
 ```bash
 docker run --rm \
     -e AWS_ACCESS_KEY_ID=your_access_key \
-    -e AWS_SECRET_ACCESS_KEY=your_secret_key \
-    [-e AWS_SESSION_TOKEN=your_session_token] \
+    -e AWS_SECRET_ACCESS_KEY=your_secret_key 
     pbdco/aws-spotter [options]
 ```
 
@@ -196,6 +195,9 @@ docker run --rm \
 ```
 
 3. **Using AWS SSO**:
+
+- If you are using SSO credentials, you can use it with the AWS_SESSION_TOKEN:
+  
 ```bash
 # First, login to AWS SSO
 aws sso login --profile your-sso-profile
