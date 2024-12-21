@@ -79,6 +79,7 @@ python aws_spotter.py [OPTIONS]
 - `--profile NAME`: AWS profile name (default: default)
 - `--json`: Output results in JSON format for automation
 - `--detailed`: Show individual Availability Zone prices (automatically enabled for single region)
+- `--no-graph`: Disable interactive graph (automatically enabled for JSON mode)
 
 ### Examples and Use Cases
 
