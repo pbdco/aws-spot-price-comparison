@@ -17,6 +17,7 @@ from dataclasses import dataclass
 import textwrap
 import numpy as np
 import json
+import os
 
 # Constants
 DEFAULT_DAYS = 30
@@ -85,7 +86,16 @@ class SpotPriceAnalyzer:
         self.loading = False
         self.loading_thread: Optional[threading.Thread] = None
         try:
-            self.session = boto3.Session(profile_name=config.profile)
+            # First try environment variables
+            if 'AWS_ACCESS_KEY_ID' in os.environ and 'AWS_SECRET_ACCESS_KEY' in os.environ:
+                self.session = boto3.Session(
+                    aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
+                    aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'],
+                    aws_session_token=os.environ.get('AWS_SESSION_TOKEN')  # Optional
+                )
+            else:
+                # Fall back to profile if no environment variables
+                self.session = boto3.Session(profile_name=config.profile)
         except botocore.exceptions.ProfileNotFound:
             raise AWSError(
                 f"AWS profile '{config.profile}' not found",
@@ -94,7 +104,17 @@ class SpotPriceAnalyzer:
                     "1. Check your AWS credentials file (~/.aws/credentials)\n"
                     "2. Ensure the profile exists and is correctly configured\n"
                     "3. Available profiles can be found in ~/.aws/credentials\n"
-                    "4. Use --profile <name> to specify a different profile"
+                    "4. Use --profile <n> to specify a different profile"
+                )
+            )
+        except Exception as e:
+            raise AWSError(
+                f"Failed to initialize AWS session: {str(e)}",
+                help_text=(
+                    "\nTo fix this:\n"
+                    "1. Make sure your AWS credentials are valid\n"
+                    "2. Check if your credentials have expired\n"
+                    "3. Ensure you have the necessary permissions"
                 )
             )
 
