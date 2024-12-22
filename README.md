@@ -176,7 +176,8 @@ The script uses the AWS credentials configured in your system. You can:
 ## Docker Usage
 
 The AWS Spot Price Comparison tool is available as a Docker image on Docker Hub: `pbdco/aws-spotter`
-*Note: docker version doesn't support graph generation (only text or json)*
+
+*Note: docker version doesn't support graph generation (supports only text or json), as it requires GUI. For graph generation, use the aws_spotter.py script.*
 
 ### Running with Docker
 
