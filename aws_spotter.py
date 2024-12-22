@@ -41,18 +41,31 @@ def parse_regions(regions_str: str, profile: str = DEFAULT_PROFILE) -> List[str]
 
     if regions_str.lower() == 'all':
         try:
-            session = boto3.Session(profile_name=profile)
-            ec2_client = session.client('ec2')
+            # Use environment variables if available, otherwise use profile
+            if 'AWS_ACCESS_KEY_ID' in os.environ and 'AWS_SECRET_ACCESS_KEY' in os.environ:
+                session = boto3.Session(
+                    aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
+                    aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'],
+                    aws_session_token=os.environ.get('AWS_SESSION_TOKEN'),
+                    region_name=DEFAULT_REGION
+                )
+            else:
+                session = boto3.Session(profile_name=profile)
+            
+            ec2_client = session.client('ec2', region_name=DEFAULT_REGION)
             response = ec2_client.describe_regions()
             return [region['RegionName'] for region in response['Regions']]
         except Exception as e:
-            print(f"Error: Could not fetch regions. Make sure AWS credentials are configured.")
-            print(f"\nTo fix AWS credentials issues:")
-            print(f"1. Configure AWS CLI: aws configure")
-            print(f"2. Or specify a profile: --profile your-profile-name")
-            print(f"3. Make sure your credentials are valid and not expired")
-            print(f"4. For SSO profiles, run: aws sso login --profile your-profile-name")
-            sys.exit(1)
+            raise AWSError(
+                "Could not fetch regions. Make sure AWS credentials are configured.",
+                help_text=(
+                    "\nTo fix AWS credentials issues:\n"
+                    "1. Configure AWS CLI: aws configure\n"
+                    "2. Or specify a profile: --profile your-profile-name\n"
+                    "3. Make sure your credentials are valid and not expired\n"
+                    "4. For SSO profiles, run: aws sso login --profile your-profile-name"
+                )
+            )
 
     return [r.strip() for r in regions_str.split(',') if r.strip()]
 
@@ -91,10 +104,10 @@ class SpotPriceAnalyzer:
                 self.session = boto3.Session(
                     aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
                     aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'],
-                    aws_session_token=os.environ.get('AWS_SESSION_TOKEN')  # Optional
+                    aws_session_token=os.environ.get('AWS_SESSION_TOKEN'),
+                    region_name=DEFAULT_REGION
                 )
             else:
-                # Fall back to profile if no environment variables
                 self.session = boto3.Session(profile_name=config.profile)
         except botocore.exceptions.ProfileNotFound:
             raise AWSError(
@@ -121,7 +134,7 @@ class SpotPriceAnalyzer:
     def fetch_available_regions(self) -> List[str]:
         """Fetch available AWS regions for EC2."""
         try:
-            ec2_client = self.session.client('ec2')
+            ec2_client = self.session.client('ec2', region_name=DEFAULT_REGION)  # Add default region
             response = ec2_client.describe_regions()
             return [region['RegionName'] for region in response['Regions']]
         except botocore.exceptions.UnauthorizedSSOTokenError:
