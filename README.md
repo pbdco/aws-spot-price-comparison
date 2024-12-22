@@ -215,21 +215,13 @@ docker run --rm \
     pbdco/aws-spotter [options]
 ```
 
-### Examples
+### Example
 
 Compare t3.medium prices across all regions for the last 2 days:
 ```bash
 docker run --rm \
     -v ~/.aws:/root/.aws:ro \
     pbdco/aws-spotter --days 2 --regions all --instance-type t3.medium --profile your-profile
-```
-
-Save price comparison graph to local directory:
-```bash
-docker run --rm \
-    -v ~/.aws:/root/.aws:ro \
-    -v $(pwd)/output:/app/output \
-    pbdco/aws-spotter --profile your-profile --regions us-east-1,us-west-2 --days 7
 ```
 
 ### Building from Source
