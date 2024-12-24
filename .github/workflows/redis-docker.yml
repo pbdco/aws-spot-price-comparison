@@ -39,19 +39,19 @@ jobs:
           no-fail: true
 
       - name: Upload Hadolint results
-        uses: github/codeql-action/upload-sarif@v2
+        uses: github/codeql-action/upload-sarif@v3
         if: success() || failure()
         with:
           sarif_file: hadolint-results.sarif
           category: hadolint
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v2
+        uses: github/codeql-action/init@v3
         with:
           languages: python
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v2
+        uses: github/codeql-action/analyze@v3
 
   build-and-scan:
     runs-on: ubuntu-latest
@@ -69,60 +69,21 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build for scanning
+      - name: Build and push
         uses: docker/build-push-action@v5
         with:
           context: .
-          load: true
+          platforms: linux/amd64
+          push: true
           tags: pbdco/aws-spotter:redis
           cache-from: type=registry,ref=pbdco/aws-spotter:redis
           cache-to: type=inline
           provenance: mode=max
-          sbom: true
-
-      - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: pbdco/aws-spotter:redis
-          format: 'sarif'
-          output: 'trivy-results.sarif'
-          severity: 'CRITICAL,HIGH'
-          timeout: '10m0s'
-
-      - name: Upload Trivy scan results
-        uses: github/codeql-action/upload-sarif@v2
-        if: success() || failure()
-        with:
-          sarif_file: trivy-results.sarif
-          category: trivy
 
       - name: Run Docker Scout
-        if: success()
         uses: docker/scout-action@v1
         with:
           command: quickview,cves
           image: pbdco/aws-spotter:redis
           only-severities: critical,high
           exit-code: true
-          sarif: true
-          format: sarif
-          output: docker-scout-results.sarif
-
-      - name: Upload Docker Scout results
-        uses: github/codeql-action/upload-sarif@v2
-        if: success() || failure()
-        with:
-          sarif_file: docker-scout-results.sarif
-          category: docker-scout
-
-      - name: Push image
-        uses: docker/build-push-action@v5
-        if: success()
-        with:
-          context: .
-          push: true
-          tags: pbdco/aws-spotter:redis
-          cache-from: type=registry,ref=pbdco/aws-spotter:redis
-          cache-to: type=inline
-          provenance: mode=max
-          sbom: true

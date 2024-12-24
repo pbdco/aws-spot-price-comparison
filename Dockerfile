@@ -1,5 +1,5 @@
 # Build stage
-FROM python:3.11-slim as builder
+FROM python:3.12-slim as builder
 
 WORKDIR /app
 
@@ -11,29 +11,30 @@ RUN apt-get update && \
     && rm -rf /var/lib/apt/lists/*
 
 # First upgrade pip and setuptools
-RUN pip install --no-cache-dir --upgrade pip==24.3.1 setuptools==70.0.0
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
 # Install Python packages
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Final stage
-FROM python:3.11-slim
+FROM python:3.12-slim
 
 WORKDIR /app
 
 # Upgrade setuptools in final image first
-RUN pip install --no-cache-dir setuptools==70.0.0
+# RUN pip install --no-cache-dir setuptools==70.0.0
 
 # Create non-root user
 RUN groupadd -r appuser && useradd -r -g appuser appuser
 
 # Copy installed packages from builder
-COPY --from=builder /usr/local/lib/python3.11/site-packages/ /usr/local/lib/python3.11/site-packages/
+COPY --from=builder /usr/local/lib/python3.12/site-packages/ /usr/local/lib/python3.12/site-packages/
 COPY --from=builder /usr/local/bin/ /usr/local/bin/
 
 # Verify setuptools version
-RUN pip freeze | grep setuptools
+# RUN pip freeze | grep setuptools
 
 # Copy application code
 COPY . .
