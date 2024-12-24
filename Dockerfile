@@ -11,8 +11,12 @@ RUN apt-get update && \
     python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Upgrade pip and setuptools
-RUN python -m pip install --upgrade pip setuptools==70.0.0
+# Create a virtual environment to isolate dependencies
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Upgrade pip and setuptools in the virtual environment
+RUN pip install --no-cache-dir pip==24.3.1 setuptools==70.0.0
 
 # Copy requirements file
 COPY requirements.txt .
