@@ -10,13 +10,12 @@ RUN apt-get update && \
     python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# Copy requirements first
+COPY requirements.txt .
+
 # First upgrade pip and setuptools
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
-
-# Install Python packages
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
 
 # Final stage
 FROM python:3.12-slim
