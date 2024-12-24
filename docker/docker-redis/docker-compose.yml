@@ -36,13 +36,21 @@ services:
       - REDIS_PASSWORD=${REDIS_PASSWORD}
       - UPDATE_INTERVAL=${UPDATE_INTERVAL:-300}
       - CACHE_EXPIRY=${CACHE_EXPIRY:-600}
-      - INSTANCE_TYPES=${INSTANCE_TYPES}
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - INSTANCE_TYPES=${INSTANCE_TYPES:-"t3.micro,t3.small,t3.medium"}
+      - LOG_LEVEL=DEBUG
+      - GUNICORN_WORKERS=20
     volumes:
       - ~/.aws:/root/.aws:ro
+    command: ["gunicorn", "--bind", "0.0.0.0:5001", "--workers", "${GUNICORN_WORKERS:-8}", "api:app"]
     depends_on:
       redis:
         condition: service_healthy
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
       interval: 30s
@@ -54,6 +62,25 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+  # phpredisadmin:
+  #   #build: .
+  #   image: erikdubbelboer/phpredisadmin:1.23
+  #   container_name: phpredisadmin
+  #   environment:
+  #     - ADMIN_USER=admin
+  #     - ADMIN_PASS=admin
+  #     - REDIS_1_HOST=redis
+  #     - REDIS_1_PORT=6379
+  #     - REDIS_PASSWORD=${REDIS_PASSWORD}
+  #   links:
+  #     - redis
+  #   depends_on:
+  #     redis:
+  #       condition: service_healthy
+  #   restart: unless-stopped
+  #   ports:
+  #     - "8808:80"
 
 volumes:
   redis_data:

@@ -21,7 +21,7 @@ ENV API_PORT=5001
 ENV API_HOST=0.0.0.0
 
 # Create entrypoint script with gunicorn
-RUN echo '#!/bin/sh\ngunicorn --bind ${API_HOST}:${API_PORT} --workers 4 --timeout 120 --access-logfile - --error-logfile - api:app' > /entrypoint.sh && \
+RUN echo '#!/bin/sh\ngunicorn --bind ${API_HOST}:${API_PORT} --workers ${GUNICORN_WORKERS} --timeout 120 --access-logfile - --error-logfile - api:app' > /entrypoint.sh && \
     chmod +x /entrypoint.sh
 
 EXPOSE 5001

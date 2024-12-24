@@ -1,19 +1,40 @@
 # AWS Spotter: EC2 Spot Price Tracker API
 
-A REST API service that provides real-time and historical AWS EC2 spot instance prices across all regions. Features Redis caching for improved performance and reduced AWS API calls.
+A high-performance REST API service that provides real-time and historical AWS EC2 spot instance prices across all regions. Features Redis caching, distributed worker processing, and intelligent region assignment for optimal performance.
 
 ## Features
 
-- RESTful API endpoints for spot price queries
-- Redis caching with configurable expiration and locking mechanism
-- Support for all EC2 instance types
-- Cross-region price comparison
-- Latest price and historical price data
-- Automatic price updates via background service
-- Detailed availability zone information
-- Comprehensive error handling and instance availability checks
-- Health monitoring endpoints
-- Detailed logging with configurable levels
+- **Distributed Processing**:
+  - Multi-worker architecture with Gunicorn
+  - Intelligent region assignment per worker
+  - Parallel price fetching across 25 AWS regions
+  - Optimized worker distribution for balanced load
+
+- **Advanced Caching**:
+  - Redis-based caching with configurable expiration
+  - Distributed locking mechanism
+  - Worker-specific cache management
+  - Efficient cache invalidation
+
+- **Comprehensive Price Tracking**:
+  - Support for 22+ EC2 instance types
+  - Cross-region price comparison
+  - Real-time and historical price data
+  - Detailed availability zone information
+  - Best price finder across all regions
+
+- **Monitoring and Logging**:
+  - Health monitoring endpoints
+  - Detailed worker-specific logging
+  - Request tracing with worker IDs
+  - Performance metrics tracking
+  - Debug-level visibility into price updates
+
+- **Error Handling**:
+  - Comprehensive error management
+  - Instance availability checks
+  - Region-specific error reporting
+  - Automatic retry mechanisms
 
 ## Prerequisites
 
@@ -86,10 +107,13 @@ The following environment variables can be configured:
 | REDIS_PASSWORD | Redis password | Required |
 | UPDATE_INTERVAL | Cache update interval (seconds) | 300 |
 | CACHE_EXPIRY | Cache expiry time (seconds) | 600 |
-| LOG_LEVEL | Logging level | INFO |
-| INSTANCE_TYPES | Comma-separated list of instances to monitor | t2.micro,t3.micro |
+| LOG_LEVEL | Logging level | DEBUG |
+| INSTANCE_TYPES | Comma-separated list of instances to monitor | Multiple types* |
 | API_PORT | API server port | 5001 |
 | API_HOST | API server host | 0.0.0.0 |
+| GUNICORN_WORKERS | Number of Gunicorn workers | 20 |
+
+\* Default instance types include: t2.micro, t2.small, t2.medium, t3.micro, t3.small, t3.medium, c5.large, c5.xlarge, r5.large, r5.xlarge, p4d.24xlarge, x2gd.xlarge, inf1.xlarge, c6gn.xlarge, r6g.xlarge, m6g.xlarge, t4g.xlarge, g5.xlarge, trn1.2xlarge, vt1.3xlarge, dl1.24xlarge, hpc6a.48xlarge
 
 ## API Endpoints
 
@@ -99,105 +123,72 @@ GET /spot-prices/<region>/<instance_type>
 ```
 Returns the latest spot price for a specific instance type in a region.
 
-Response format:
-```json
-{
-  "availability_zone": "ap-south-2b",
-  "instance_type": "c5.2xlarge",
-  "price": 0.07,
-  "region": "ap-south-2",
-  "source": "cache|aws",
-  "price_timestamp": "2024-12-23T20:45:55+00:00",  // When AWS reported this price
-  "cached_at": "2024-12-24T00:15:30+00:00"         // When we cached it
-}
-```
-
 ### 2. Get Best Price
 ```bash
-GET /spot-prices/best/<instance_type>
+GET /best-price/<instance_type>
 ```
-Returns the lowest spot price across all regions for an instance type.
-
-Example:
-```bash
-curl http://localhost:5001/spot-prices/best/t2.micro
-```
-
-Response:
-```json
-{
-  "instance_type": "t2.micro",
-  "best_price": 0.0035,
-  "region": "us-east-1",
-  "availability_zone": "us-east-1b",
-  "timestamp": "2024-12-23T06:02:01+00:00",
-  "source": "cache"
-}
-```
+Returns the lowest spot price across all regions for a specific instance type.
 
 ### 3. Health Check
 ```bash
 GET /health
 ```
-Returns the health status of the service and its dependencies.
+Returns service health status and worker information.
 
-Example:
-```bash
-curl http://localhost:5001/health
-```
+## Response Format
 
-Response:
+### Spot Price Response
 ```json
 {
-  "status": "healthy",
-  "timestamp": "2024-12-23T06:02:01+00:00",
-  "services": {
-    "redis": {
-      "status": "healthy",
-      "host": "redis",
-      "port": 6379
+    "instance_type": "t3.micro",
+    "region": "us-east-1",
+    "prices": {
+        "us-east-1a": 0.0035,
+        "us-east-1b": 0.0034,
+        "us-east-1c": 0.0033
     },
-    "aws": {
-      "status": "healthy",
-      "region": "us-east-1",
-      "regions_available": 25
-    }
-  }
+    "source": "aws-api",
+    "cached_at": "2024-12-24T02:51:15Z"
 }
 ```
+
+### Best Price Response
+```json
+{
+    "instance_type": "t3.micro",
+    "region": "us-east-1",
+    "price": 0.0033,
+    "availability_zone": "us-east-1c",
+    "source": "aws-api",
+    "cached_at": "2024-12-24T02:51:15Z"
+}
+```
+
+## Worker Distribution
+
+The service uses an intelligent worker distribution system:
+- 20 Gunicorn workers process requests in parallel
+- Workers are assigned specific AWS regions
+- Even distribution of regions across workers (1-2 regions per worker)
+- Covers all 25 AWS regions efficiently
+- Worker-specific logging for easy debugging
+
+## Performance Optimization
+
+- Parallel processing of AWS regions
+- Redis caching to minimize API calls
+- Worker-specific region assignments
+- Efficient cache invalidation
+- Request distribution across workers
 
 ## Error Handling
 
-The API returns appropriate HTTP status codes and error messages:
-
-- 200: Successful request
-- 404: Price not found or instance type not available
-- 500: Internal server error
-- 503: Service unhealthy (Redis or AWS unavailable)
-
-Error responses include detailed messages to help diagnose issues:
-
-```json
-{
-  "error": "Instance type t99.micro is not offered in region us-east-1"
-}
-```
-
-## Caching Behavior
-
-- Fresh prices are cached for 10 minutes by default (configurable)
-- Stale prices are returned if AWS API calls fail
-- Cache status is indicated in responses via 'source' field
-- TTL information is included when available
-
-## Docker Support
-
-The service includes:
-- Multi-stage build for minimal image size
-- Health checks for both API and Redis services
-- Automatic container restart
-- Volume mounting for AWS credentials
-- Configurable through environment variables
+The service includes comprehensive error handling:
+- AWS API error management
+- Cache miss handling
+- Region availability checks
+- Worker process monitoring
+- Detailed error logging with worker context
 
 ## License
 

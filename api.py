@@ -12,12 +12,63 @@ import socket
 from spot_price_service import SpotPriceService
 from redis_cache import RedisCache
 
-# Configure logging
-logging.basicConfig(
-    level=os.environ.get('LOG_LEVEL', 'INFO'),
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
+# Get configuration
+UPDATE_INTERVAL = int(os.environ.get('UPDATE_INTERVAL', 300))  # 5 minutes default
+INSTANCE_TYPES = os.environ.get('INSTANCE_TYPES', '').split(',')
+TOTAL_WORKERS = int(os.environ.get('GUNICORN_WORKERS', 4))
+
+def get_worker_number():
+    """Get the worker number from process ID."""
+    try:
+        import os
+        # Get worker number from PID
+        pid = os.getpid()
+        # First worker is the master process, so we subtract it
+        worker_num = (pid - os.getppid() - 1) % TOTAL_WORKERS
+        return worker_num
+    except Exception as e:
+        logging.error(f"Error getting worker number: {e}")
+        return 0
+
+class WorkerIDFilter(logging.Filter):
+    """Add worker ID to all log records."""
+    def __init__(self):
+        super().__init__()
+        self.pid = os.getpid()
+        self.worker_num = get_worker_number()
+
+    def filter(self, record):
+        if not hasattr(record, 'worker_id'):
+            record.worker_id = f"{self.pid}[{self.worker_num}/{TOTAL_WORKERS}]"
+        return True
+
+# Configure root logger first
+root_logger = logging.getLogger()
+root_logger.setLevel(os.environ.get('LOG_LEVEL', 'INFO'))
+
+# Create console handler with formatting
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(
+    logging.Formatter(
+        '%(asctime)s - %(levelname)s - [Worker %(worker_id)s] - %(message)s',
+        '%Y-%m-%d %H:%M:%S'
+    )
 )
+
+# Add filter to handler
+worker_filter = WorkerIDFilter()
+console_handler.addFilter(worker_filter)
+
+# Remove any existing handlers and add our configured one
+root_logger.handlers.clear()
+root_logger.addHandler(console_handler)
+
+# Configure boto3 and botocore loggers to use our handler
+for logger_name in ['boto3', 'botocore', 'urllib3']:
+    logger = logging.getLogger(logger_name)
+    logger.handlers.clear()
+    logger.addHandler(console_handler)
+    logger.setLevel(logging.WARNING)  # Set to WARNING to reduce noise
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -35,10 +86,8 @@ redis_cache = RedisCache(
 
 # Initialize spot price service
 spot_service = SpotPriceService(cache=redis_cache)
-
-# Get configuration
-UPDATE_INTERVAL = int(os.environ.get('UPDATE_INTERVAL', 300))  # 5 minutes default
-INSTANCE_TYPES = os.environ.get('INSTANCE_TYPES', '').split(',')
+spot_service.worker_id = get_worker_number()
+spot_service.total_workers = TOTAL_WORKERS
 
 def is_primary_worker():
     """Check if this is the primary worker process using Redis lock."""
@@ -73,44 +122,50 @@ def is_primary_worker():
 
 def update_prices():
     """Background task to update spot prices for all configured instance types."""
-    my_id = os.getpid()
-    logging.info(f"Price update process started for worker {my_id}")
+    logging.info("Price update process started")
+    worker_num = get_worker_number()
     
     while True:
         try:
-            if not is_primary_worker():
-                logging.debug(f"Worker {my_id} is not the leader, waiting...")
+            # Register worker and get assignment
+            redis_cache.register_worker(str(worker_num))
+            total_workers = redis_cache.get_worker_count()
+            regions = spot_service.get_regions()
+            my_regions = redis_cache.assign_worker_regions(str(worker_num), total_workers, regions)
+            
+            if not my_regions:
+                logging.debug("No regions assigned, waiting...")
                 time.sleep(10)
                 continue
-                
-            logging.info(f"Worker {my_id} starting periodic price update")
-            regions = spot_service.get_regions()
+
+            logging.info(f"Assigned regions: {my_regions}")
             
+            # Update prices for assigned regions
             for instance_type in INSTANCE_TYPES:
                 if not instance_type.strip():
                     continue
-                    
+                
                 logging.info(f"Updating prices for {instance_type}")
-                for region in regions:
+                for region in my_regions:
                     try:
                         spot_service.get_spot_price(instance_type.strip(), region)
                     except Exception as e:
                         logging.error(f"Error updating price for {instance_type} in {region}: {e}")
-                        
-            logging.info(f"Worker {my_id} finished periodic price update")
+            
+            # Send heartbeat and sleep
+            redis_cache.heartbeat(str(worker_num))
+            logging.info("Finished updating assigned regions")
             time.sleep(UPDATE_INTERVAL)
             
         except Exception as e:
             logging.error(f"Error in price update process: {e}")
             time.sleep(10)
 
-# Start the background update process only on the primary worker
-if INSTANCE_TYPES and INSTANCE_TYPES[0] and is_primary_worker():
+# Start the background update process in each worker
+if INSTANCE_TYPES and INSTANCE_TYPES[0]:
     logging.info("Starting price update process")
-    update_process = multiprocessing.Process(target=update_prices, daemon=True)
+    update_process = threading.Thread(target=update_prices, daemon=True)
     update_process.start()
-else:
-    logging.info("Not the primary worker, skipping price update process")
 
 # Security and rate limiting configuration
 RATE_LIMIT = int(os.environ.get('RATE_LIMIT', '60'))  # requests per minute
@@ -282,7 +337,11 @@ def get_spot_prices(region, instance_type):
     """Get spot prices for a specific instance type in a region."""
     try:
         logging.info(f"Getting spot price for {instance_type} in {region}")
-        price_data = spot_service.get_spot_price(instance_type, region)
+        # Create a new service instance for each request to ensure thread safety
+        service = SpotPriceService(cache=redis_cache)
+        service.worker_id = get_worker_number()
+        service.total_workers = TOTAL_WORKERS
+        price_data = service.get_spot_price(instance_type, region)
         
         if price_data.get('error'):
             return format_error_response(price_data['error'], 404)
@@ -300,7 +359,11 @@ def get_best_price(instance_type):
     """Get the best spot price across all regions for an instance type."""
     try:
         logging.info(f"Finding best price for {instance_type}")
-        price_data = spot_service.get_best_price(instance_type)
+        # Create a new service instance for each request to ensure thread safety
+        service = SpotPriceService(cache=redis_cache)
+        service.worker_id = get_worker_number()
+        service.total_workers = TOTAL_WORKERS
+        price_data = service.get_best_price(instance_type)
         
         if price_data.get('error'):
             return format_error_response(price_data['error'], 404)
