@@ -4,7 +4,8 @@ services:
   redis:
     image: redis:7.2-alpine
     command: >
-      sh -c "envsubst < /usr/local/etc/redis/redis.conf.template > /usr/local/etc/redis/redis.conf &&
+      sh -c "apk add --no-cache gettext &&
+             envsubst < /usr/local/etc/redis/redis.conf.template > /usr/local/etc/redis/redis.conf &&
              redis-server /usr/local/etc/redis/redis.conf"
     volumes:
       - ./redis.conf:/usr/local/etc/redis/redis.conf.template:ro
@@ -21,7 +22,7 @@ services:
           memory: 512M
     security_opt:
       - no-new-privileges:true
-    read_only: true
+    read_only: false  # Temporarily needed for apk add
     tmpfs:
       - /tmp
       - /var/run
