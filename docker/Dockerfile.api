@@ -1,0 +1,18 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt flask
+
+# Copy source code
+COPY . .
+
+# Set Docker environment variable
+ENV DOCKER_CONTAINER=1
+
+# Expose port
+EXPOSE 5001
+
+CMD ["python", "api.py"]

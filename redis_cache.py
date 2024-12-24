@@ -1,92 +1,128 @@
-import json
-import time
-from typing import Optional, Dict, Any
 import redis
-from redis.exceptions import RedisError
-
+import json
+import logging
+from datetime import datetime, timezone
+from typing import Dict, Optional, Any, Callable
+import time
+from functools import wraps
+import os
 
 class RedisCache:
-    def __init__(self, host: str = 'localhost', port: int = 6379, db: int = 0):
-        self.redis_client = redis.Redis(host=host, port=port, db=db, decode_responses=True)
-        self.cache_ttl = 3600  # 1 hour TTL for cleanup
-        self.max_age = 1800    # 30 minutes max age for valid cache
+    """Redis cache implementation with retries and error handling."""
+    
+    def __init__(self, host: str = 'localhost', port: int = 6379, password: str = None,
+                 max_retries: int = 3, retry_delay: float = 0.1):
+        """Initialize Redis cache with connection parameters."""
+        self.host = host
+        self.port = port
+        self.password = password
+        self.max_retries = max_retries
+        self.retry_delay = retry_delay
+        self.cache_expiry = int(os.environ.get('CACHE_EXPIRY', 600))  # 10 minutes
+        self.client = None
+        self.connect()
 
-    def _get_key(self, region: str, instance_type: str) -> str:
-        """Generate Redis key for spot price data."""
-        return f"spot_prices:{region}:{instance_type}"
-
-    def get_cached_price(self, region: str, instance_type: str) -> Optional[float]:
-        """
-        Get cached spot price if available and not expired.
-        Returns None if cache miss or expired.
-        """
+    def connect(self):
+        """Connect to Redis."""
         try:
-            key = self._get_key(region, instance_type)
-            cached_data = self.redis_client.get(key)
+            self.client = redis.Redis(
+                host=self.host,
+                port=self.port,
+                password=self.password,
+                decode_responses=True,  # This ensures we get strings back
+                socket_timeout=5,
+                retry_on_timeout=True
+            )
+            logging.info(f"Connected to Redis at {self.host}:{self.port}")
+        except Exception as e:
+            logging.error(f"Failed to connect to Redis: {e}")
+            raise
+
+    def _retry_operation(self, operation, *args, **kwargs):
+        """Retry Redis operation with reconnection."""
+        try:
+            return operation(*args, **kwargs)
+        except (redis.ConnectionError, redis.TimeoutError) as e:
+            logging.warning(f"Redis operation failed, attempting reconnect: {e}")
+            self.connect()
+            return operation(*args, **kwargs)
+
+    def _get_cache_key(self, region: str, instance_type: str) -> str:
+        """Generate cache key for spot price data."""
+        return f"spot_price:{region}:{instance_type}"
+
+    def get_spot_prices(self, region: str, instance_type: str) -> Optional[Dict]:
+        """Get cached spot price data."""
+        try:
+            key = self._get_cache_key(region, instance_type)
+            data = self._retry_operation(self.client.get, key)
             
-            if not cached_data:
+            if not data:
                 return None
-
-            data = json.loads(cached_data)
-            cached_time = data['timestamp']
-            current_time = int(time.time())
-
-            # Check if cache is still valid (less than 30 minutes old)
-            if current_time - cached_time <= self.max_age:
-                return float(data['price'])
+                
+            return json.loads(data)
             
+        except Exception as e:
+            logging.error(f"Error getting price from cache for {instance_type} in {region}: {e}")
             return None
 
-        except (RedisError, json.JSONDecodeError, KeyError) as e:
-            print(f"Cache error: {str(e)}")
-            return None
-
-    def set_price(self, region: str, instance_type: str, price: float) -> bool:
-        """
-        Cache spot price with current timestamp.
-        Returns True if successful, False otherwise.
-        """
+    def set_spot_prices(self, region: str, instance_type: str, data: Dict) -> bool:
+        """Cache spot price data with expiry."""
         try:
-            key = self._get_key(region, instance_type)
-            data = {
-                'price': price,
-                'timestamp': int(time.time())
-            }
+            if not isinstance(data, dict) or 'prices' not in data:
+                raise ValueError("Invalid price data format")
+
+            key = self._get_cache_key(region, instance_type)
             
-            self.redis_client.setex(
+            self._retry_operation(
+                self.client.setex,
                 key,
-                self.cache_ttl,
+                self.cache_expiry,
                 json.dumps(data)
             )
+            
             return True
-
-        except RedisError as e:
-            print(f"Cache error: {str(e)}")
+            
+        except Exception as e:
+            logging.error(f"Error setting price in cache for {instance_type} in {region}: {e}")
             return False
 
-    def clear_cache(self, region: str = None, instance_type: str = None) -> bool:
-        """
-        Clear cache for specific region/instance or all cache if none specified.
-        """
+    def set(self, key: str, value: str, ex: int = None, nx: bool = False) -> bool:
+        """Set a value in Redis with optional expiry and NX flag."""
         try:
-            if region and instance_type:
-                key = self._get_key(region, instance_type)
-                self.redis_client.delete(key)
-            else:
-                # Clear all spot price cache
-                pattern = "spot_prices:*"
-                keys = self.redis_client.keys(pattern)
+            return self._retry_operation(self.client.set, key, value, ex=ex, nx=nx)
+        except Exception as e:
+            logging.error(f"Redis set error: {e}")
+            return False
+
+    def get(self, key: str) -> Optional[str]:
+        """Get a value from Redis."""
+        try:
+            return self._retry_operation(self.client.get, key)
+        except Exception as e:
+            logging.error(f"Redis get error: {e}")
+            return None
+
+    def clear_cache(self, pattern: str = "spot_price:*") -> bool:
+        """Clear all cached data matching pattern."""
+        try:
+            cursor = 0
+            while True:
+                cursor, keys = self._retry_operation(
+                    self.client.scan,
+                    cursor,
+                    match=pattern,
+                    count=100
+                )
+                
                 if keys:
-                    self.redis_client.delete(*keys)
+                    self._retry_operation(self.client.delete, *keys)
+                    
+                if cursor == 0:
+                    break
+                    
             return True
-
-        except RedisError as e:
-            print(f"Cache error: {str(e)}")
-            return False
-
-    def is_connected(self) -> bool:
-        """Check if Redis connection is alive."""
-        try:
-            return self.redis_client.ping()
-        except RedisError:
+            
+        except Exception as e:
+            logging.error(f"Error clearing cache with pattern {pattern}: {e}")
             return False

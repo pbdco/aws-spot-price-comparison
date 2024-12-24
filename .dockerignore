@@ -1,6 +1,7 @@
+.git
+.gitignore
 .env
 venv/
-.DS_Store
 __pycache__/
 *.pyc
 *.pyo
@@ -12,3 +13,7 @@ __pycache__/
 htmlcov/
 .env.local
 redis_data/
+.DS_Store
+README.md
+Dockerfile
+docker-compose.yml
