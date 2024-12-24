@@ -1,21 +1,28 @@
+version: '3.8'
+
 services:
   redis:
     image: redis:7.2-alpine
-    ports:
-      - "${REDIS_PORT}:6379"
+    command: redis-server /usr/local/etc/redis/redis.conf
     volumes:
-      - redis_data:/data
-    command: redis-server --requirepass ${REDIS_PASSWORD} --save 60 1 --loglevel warning
+      - ./redis.conf:/usr/local/etc/redis/redis.conf
+    ports:
+      - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 3
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/run
 
   api:
     build:
@@ -24,8 +31,6 @@ services:
     image: pbdco/aws-spotter:redis
     container_name: spotter-api
     restart: unless-stopped
-    ports:
-      - "5001:5001"
     environment:
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
@@ -39,18 +44,34 @@ services:
       - INSTANCE_TYPES=${INSTANCE_TYPES:-"t3.micro,t3.small,t3.medium"}
       - LOG_LEVEL=DEBUG
       - GUNICORN_WORKERS=20
+      - AWS_SHARED_CREDENTIALS_FILE=/root/.aws/credentials
+      - AWS_CONFIG_FILE=/root/.aws/config
+      - AWS_PROFILE=${AWS_PROFILE:-default}
+      - CACHE_EXPIRY=600
     volumes:
       - ~/.aws:/root/.aws:ro
-    command: ["gunicorn", "--bind", "0.0.0.0:5001", "--workers", "${GUNICORN_WORKERS:-8}", "api:app"]
+    ports:
+      - "5001:5001"
     depends_on:
       redis:
         condition: service_healthy
     deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '2'
       restart_policy:
         condition: on-failure
         delay: 5s
         max_attempts: 3
         window: 120s
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/run
+    command: ["gunicorn", "--bind", "0.0.0.0:5001", "--workers", "${GUNICORN_WORKERS:-8}", "api:app"]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
       interval: 30s
@@ -63,24 +84,12 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # phpredisadmin:
-  #   #build: .
-  #   image: erikdubbelboer/phpredisadmin:1.23
-  #   container_name: phpredisadmin
-  #   environment:
-  #     - ADMIN_USER=admin
-  #     - ADMIN_PASS=admin
-  #     - REDIS_1_HOST=redis
-  #     - REDIS_1_PORT=6379
-  #     - REDIS_PASSWORD=${REDIS_PASSWORD}
-  #   links:
-  #     - redis
-  #   depends_on:
-  #     redis:
-  #       condition: service_healthy
-  #   restart: unless-stopped
-  #   ports:
-  #     - "8808:80"
-
-volumes:
-  redis_data:
+networks:
+  default:
+    driver: bridge
+    driver_opts:
+      com.docker.network.driver.mtu: 1500
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.31.0.0/16

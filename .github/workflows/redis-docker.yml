@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - redis
+      - redis-tests
 
 permissions:
   contents: read
