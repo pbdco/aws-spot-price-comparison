@@ -1,23 +1,34 @@
+# Use Python 3.11 slim as base image
 FROM python:3.11-slim
 
+# Set working directory
 WORKDIR /app
 
 # Install system dependencies
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-    curl \
+    gcc \
+    python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements first to leverage Docker cache
+# Upgrade pip and setuptools to secure versions
+RUN pip install --no-cache-dir --upgrade \
+    pip>=23.3.2 \
+    setuptools>=70.0.0 \
+    wheel>=0.42.0
+
+# Copy requirements file
 COPY requirements.txt .
+
+# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY . .
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s \
-  CMD curl -f http://localhost:5001/health || exit 1
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
 
 # Run the application
 CMD ["gunicorn", "--bind", "0.0.0.0:5001", "--workers", "4", "api:app"]
