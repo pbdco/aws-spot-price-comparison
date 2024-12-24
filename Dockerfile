@@ -10,22 +10,30 @@ RUN apt-get update && \
     python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# First upgrade pip and setuptools
+RUN pip install --no-cache-dir --upgrade pip==24.3.1 setuptools==70.0.0
+
 # Install Python packages
 COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip==24.3.1 setuptools==70.0.0 && \
-    pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Final stage
 FROM python:3.11-slim
 
 WORKDIR /app
 
+# Upgrade setuptools in final image first
+RUN pip install --no-cache-dir setuptools==70.0.0
+
 # Create non-root user
 RUN groupadd -r appuser && useradd -r -g appuser appuser
 
-# Copy only the installed packages from builder
+# Copy installed packages from builder
 COPY --from=builder /usr/local/lib/python3.11/site-packages/ /usr/local/lib/python3.11/site-packages/
 COPY --from=builder /usr/local/bin/ /usr/local/bin/
+
+# Verify setuptools version
+RUN pip freeze | grep setuptools
 
 # Copy application code
 COPY . .
