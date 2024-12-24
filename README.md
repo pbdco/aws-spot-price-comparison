@@ -99,24 +99,16 @@ GET /spot-prices/<region>/<instance_type>
 ```
 Returns the latest spot price for a specific instance type in a region.
 
-Example:
-```bash
-curl http://localhost:5001/spot-prices/us-west-1/t2.micro
-```
-
-Response:
+Response format:
 ```json
 {
-  "instance_type": "t2.micro",
-  "region": "us-west-1",
-  "latest_price": {
-    "price": 0.0049,
-    "timestamp": "2024-12-23T06:02:01+00:00",
-    "availability_zone": "us-west-1a"
-  },
-  "cached_at": "2024-12-23T06:02:01+00:00",
-  "source": "aws",
-  "cache_ttl": 540
+  "availability_zone": "ap-south-2b",
+  "instance_type": "c5.2xlarge",
+  "price": 0.07,
+  "region": "ap-south-2",
+  "source": "cache|aws",
+  "price_timestamp": "2024-12-23T20:45:55+00:00",  // When AWS reported this price
+  "cached_at": "2024-12-24T00:15:30+00:00"         // When we cached it
 }
 ```
 
