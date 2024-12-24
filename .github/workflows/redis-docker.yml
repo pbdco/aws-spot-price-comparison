@@ -5,6 +5,8 @@ on:
     branches:
       - redis
       - redis-tests
+  schedule:
+    - cron: '0 0 * * 1' # Run weekly to check for base image updates
 
 permissions:
   contents: read
@@ -12,9 +14,35 @@ permissions:
   packages: write
 
 jobs:
+  check-base-images:
+    name: Check Base Images
+    runs-on: ubuntu-latest
+    outputs:
+      base_image: ${{ steps.get-base-image.outputs.base_image }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get base image from Dockerfile
+        id: get-base-image
+        run: |
+          BASE_IMAGE=$(grep "^FROM.*as builder" Dockerfile | awk '{print $2}')
+          echo "base_image=${BASE_IMAGE}" >> "$GITHUB_OUTPUT"
+          echo "Found base image: ${BASE_IMAGE}"
+
+      - name: Check base image updates
+        uses: docker/scout-action@v1
+        with:
+          command: recommendations,cves
+          image: ${{ steps.get-base-image.outputs.base_image }}
+          only-fixed: true
+          only-severities: critical,high
+          exit-code: true
+
   security-checks:
     name: Security Checks
     runs-on: ubuntu-latest
+    needs: check-base-images
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

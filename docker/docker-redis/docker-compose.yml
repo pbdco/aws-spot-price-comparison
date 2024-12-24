@@ -3,13 +3,15 @@ version: '3.8'
 services:
   redis:
     image: redis:7.2-alpine
-    command: redis-server /usr/local/etc/redis/redis.conf
+    command: >
+      sh -c "envsubst < /usr/local/etc/redis/redis.conf.template > /usr/local/etc/redis/redis.conf &&
+             redis-server /usr/local/etc/redis/redis.conf"
     volumes:
-      - ./redis.conf:/usr/local/etc/redis/redis.conf
+      - ./redis.conf:/usr/local/etc/redis/redis.conf.template:ro
     ports:
       - "6379:6379"
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 5s
       timeout: 3s
       retries: 3
@@ -23,6 +25,9 @@ services:
     tmpfs:
       - /tmp
       - /var/run
+      - /usr/local/etc/redis
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
 
   api:
     build:
@@ -48,6 +53,7 @@ services:
       - AWS_CONFIG_FILE=/root/.aws/config
       - AWS_PROFILE=${AWS_PROFILE:-default}
       - CACHE_EXPIRY=600
+      - PYTHONUNBUFFERED=1
     volumes:
       - ~/.aws:/root/.aws:ro
     ports:
@@ -74,10 +80,9 @@ services:
     command: ["gunicorn", "--bind", "0.0.0.0:5001", "--workers", "${GUNICORN_WORKERS:-8}", "api:app"]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
-      interval: 30s
-      timeout: 10s
+      interval: 10s
+      timeout: 5s
       retries: 3
-      start_period: 10s
     logging:
       driver: "json-file"
       options:
