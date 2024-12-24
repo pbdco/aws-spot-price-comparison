@@ -26,12 +26,17 @@ jobs:
       - name: Get base image from Dockerfile
         id: get-base-image
         run: |
-          BASE_IMAGE=$(grep "^FROM.*as builder" Dockerfile | awk '{print $2}')
+          BASE_IMAGE=$(grep -m 1 "^FROM " Dockerfile | awk '{print $2}')
+          if [[ -z "$BASE_IMAGE" ]]; then
+            echo "Error: Unable to determine base image."
+            exit 1
+          fi
           echo "base_image=${BASE_IMAGE}" >> "$GITHUB_OUTPUT"
           echo "Found base image: ${BASE_IMAGE}"
 
       - name: Check base image updates
         uses: docker/scout-action@v1
+        if: ${{ steps.get-base-image.outputs.base_image != '' }}
         with:
           command: recommendations
           image: ${{ steps.get-base-image.outputs.base_image }}
@@ -63,7 +68,8 @@ jobs:
           fetch-depth: 0
 
       - name: Run GitGuardian scan
-        uses: GitGuardian/ggshield-action@master
+        if: secrets.GITGUARDIAN_API_KEY != ''
+        uses: GitGuardian/ggshield-action@v1.0.0
         env:
           GITHUB_PUSH_BEFORE_SHA: ${{ github.event.before }}
           GITHUB_PUSH_BASE_SHA: ${{ github.event.base }}
@@ -95,6 +101,7 @@ jobs:
         uses: github/codeql-action/analyze@v3
 
   build-and-scan:
+    name: Build and Push Docker Image
     runs-on: ubuntu-latest
     needs: security-checks
     steps:
@@ -103,6 +110,9 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+        with:
+          install: true
+          use: true
 
       - name: Login to Docker Hub
         uses: docker/login-action@v3
@@ -110,21 +120,54 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and push
+      - name: Set Image Tag
+        id: version
+        run: |
+          if [ "${{ github.ref }}" == "refs/heads/redis" ]; then
+            TAG=latest
+          else
+            TAG=${{ github.sha }}
+          fi
+          echo "image_tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and Push Docker Image
         uses: docker/build-push-action@v5
         with:
           context: .
           platforms: linux/amd64
           push: true
-          tags: pbdco/aws-spotter:redis
+          tags: |
+            pbdco/aws-spotter:redis
+            pbdco/aws-spotter:redis-${{ steps.version.outputs.image_tag }}
           cache-from: type=registry,ref=pbdco/aws-spotter:redis
           cache-to: type=inline
           provenance: mode=max
 
-      - name: Run Docker Scout
+      - name: Run Docker Scout (Post-Push)
         uses: docker/scout-action@v1
         with:
           command: quickview,cves
-          image: pbdco/aws-spotter:redis
+          image: pbdco/aws-spotter:redis-${{ steps.version.outputs.image_tag }}
           only-severities: critical,high
           exit-code: true
+
+  cleanup:
+    name: Cleanup Image Caches
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Prune Docker System
+        run: docker system prune -af
+
+notifications:
+  name: Send Notifications for Failures
+  runs-on: ubuntu-latest
+  if: failure()
+  steps:
+    - name: Notify via Slack
+      uses: rtCamp/action-slack-notify@v2
+      env:
+        SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+        SLACK_USERNAME: 'GitHub Actions'
+        SLACK_MESSAGE: |
+          Workflow `{{ github.workflow }}` in `{{ github.repository }}` failed on branch `{{ github.ref_name }}`. Check details at: ${{ github.run_url }}
