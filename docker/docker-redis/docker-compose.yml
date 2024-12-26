@@ -2,100 +2,100 @@ version: '3.8'
 
 services:
   redis:
-    image: redis:7.2-alpine
+    image: redis:7-alpine
     command: >
       sh -c "apk add --no-cache gettext &&
              envsubst < /usr/local/etc/redis/redis.conf.template > /usr/local/etc/redis/redis.conf &&
              redis-server /usr/local/etc/redis/redis.conf"
     volumes:
       - ./redis.conf:/usr/local/etc/redis/redis.conf.template:ro
+      - ~/.aws:/root/.aws:ro
+      - redis_data:/data
     ports:
       - "6379:6379"
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
     healthcheck:
       test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 5s
       timeout: 3s
       retries: 3
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-    security_opt:
-      - no-new-privileges:true
-    read_only: false  # Temporarily needed for apk add
-    tmpfs:
-      - /tmp
-      - /var/run
-      - /usr/local/etc/redis
-    environment:
-      - REDIS_PASSWORD=${REDIS_PASSWORD}
 
   api:
     build:
       context: ../..
-      dockerfile: docker/Dockerfile
-    image: pbdco/aws-spotter:redis
-    container_name: spotter-api
-    restart: unless-stopped
+      dockerfile: docker/docker-redis/Dockerfile
+    command: python api.py
+    ports:
+      - "5001:5001"
+    volumes:
+      - ~/.aws:/home/appuser/.aws:ro
     environment:
-      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-      - AWS_PROFILE=an-aws-spotter
-      - AWS_DEFAULT_REGION=ap-south-1
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - REDIS_PASSWORD=${REDIS_PASSWORD}
-      - UPDATE_INTERVAL=${UPDATE_INTERVAL:-300}
-      - CACHE_EXPIRY=${CACHE_EXPIRY:-600}
-      - INSTANCE_TYPES=${INSTANCE_TYPES:-"t3.micro,t3.small,t3.medium"}
-      - LOG_LEVEL=DEBUG
-      - GUNICORN_WORKERS=20
-      - AWS_SHARED_CREDENTIALS_FILE=/root/.aws/credentials
-      - AWS_CONFIG_FILE=/root/.aws/config
-      - AWS_PROFILE=${AWS_PROFILE:-default}
+      - UPDATE_INTERVAL=300
       - CACHE_EXPIRY=600
-      - PYTHONUNBUFFERED=1
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
+      - INSTANCE_TYPES=t2.micro,t2.small,t2.medium,t3.micro,t3.small,t3.medium
+      - GUNICORN_WORKERS=4
+      - LOG_LEVEL=INFO
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: docker/docker-redis/Dockerfile
+    command: python worker.py
     volumes:
-      - ~/.aws:/root/.aws:ro
-    ports:
-      - "5001:5001"
+      - ~/.aws:/home/appuser/.aws:ro
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - UPDATE_INTERVAL=300
+      - CACHE_EXPIRY=600
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
+      - INSTANCE_TYPES=t2.micro,t2.small,t2.medium,t3.micro,t3.small,t3.medium
+      - GUNICORN_WORKERS=4
+      - LOG_LEVEL=INFO
     depends_on:
       redis:
         condition: service_healthy
     deploy:
-      resources:
-        limits:
-          memory: 1G
-          cpus: '2'
-      restart_policy:
-        condition: on-failure
-        delay: 5s
-        max_attempts: 3
-        window: 120s
-    security_opt:
-      - no-new-privileges:true
-    read_only: true
-    tmpfs:
-      - /tmp
-      - /var/run
-    command: ["gunicorn", "--bind", "0.0.0.0:5001", "--workers", "${GUNICORN_WORKERS:-8}", "api:app"]
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
+      replicas: 2
 
-networks:
-  default:
-    driver: bridge
-    driver_opts:
-      com.docker.network.driver.mtu: 1500
-    ipam:
-      driver: default
-      config:
-        - subnet: 172.31.0.0/16
+  scheduler:
+    build:
+      context: ../..
+      dockerfile: docker/docker-redis/Dockerfile
+    command: python scheduler.py
+    volumes:
+      - ~/.aws:/home/appuser/.aws:ro
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - UPDATE_INTERVAL=300
+      - CACHE_EXPIRY=600
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
+      - INSTANCE_TYPES=t2.micro,t2.small,t2.medium,t3.micro,t3.small,t3.medium
+      - GUNICORN_WORKERS=4
+      - LOG_LEVEL=DEBUG
+    depends_on:
+      redis:
+        condition: service_healthy
+
+volumes:
+  redis_data:

@@ -18,19 +18,12 @@ class SpotPriceService:
         self.cache = cache
         self.default_region = self.session.region_name or 'us-east-1'
         self.regions = self.get_regions()  # Initialize regions list
-        self.total_workers = int(os.environ.get('GUNICORN_WORKERS', '1'))
 
     def _create_session(self) -> boto3.Session:
-        """Create an AWS session using mounted credentials."""
+        """Create an AWS session using cached SSO credentials."""
         try:
-            # Just use the mounted AWS config/credentials
-            profile = os.environ.get('AWS_PROFILE')
-            if profile:
-                logging.info(f"Using mounted AWS profile: {profile}")
-                return boto3.Session(profile_name=profile)
-            else:
-                logging.info("Using default AWS profile")
-                return boto3.Session()
+            # For SSO, just create a default session which will use cached credentials
+            return boto3.Session()
         except Exception as e:
             logging.error(f"Failed to use AWS credentials: {e}")
             raise ValueError("No valid AWS credentials found. Make sure you've run 'aws sso login' and the credentials are mounted correctly")
@@ -180,120 +173,73 @@ class SpotPriceService:
 
     def get_best_price(self, instance_type: str) -> Dict:
         """Get the best spot price for an instance type across all regions."""
-        best_price = float('inf')
-        best_region = None
-        best_az = None
-        best_price_data = None
-        errors = []
-        processed_regions = 0
-        all_regions = set(self.regions)
-        processed_regions_set = set()
-
-        # Generate a unique request ID
-        request_id = f"best_price_request_{instance_type}_{time.time()}"
-        self.cache.init_best_price_request(request_id, len(self.regions))
-        
-        # Process regions in parallel using ThreadPoolExecutor
-        max_workers = min(20, len(self.regions))  # Use up to 20 threads
-        
-        def process_region(region):
-            try:
-                price_data = self.get_spot_price(instance_type, region)
-                if price_data.get('error'):
-                    return {'error': f"{region}: {price_data['error']}"}
-                
-                prices = price_data.get('prices', {})
-                if not prices:
-                    return {'error': f"No prices found for {instance_type} in {region}"}
-                
-                region_best = float('inf')
-                region_az = None
-                region_timestamp = None
-                region_cached_at = None
-                
-                for az, price in prices.items():
-                    try:
-                        price_float = float(price)
-                        if price_float < region_best:
-                            region_best = price_float
-                            region_az = az
-                            region_timestamp = price_data.get('aws_timestamp')
-                            region_cached_at = price_data.get('cached_at')
-                    except (ValueError, TypeError) as e:
-                        logging.error(f"Invalid price value for {instance_type} in {region}/{az}: {e}")
-                        continue
-                
-                if region_best < float('inf'):
-                    result = {
-                        'instance_type': instance_type,
-                        'region': region,
-                        'price': region_best,
-                        'availability_zone': region_az,
-                        'source': price_data['source'],
-                        'aws_timestamp': region_timestamp,
-                        'cached_at': region_cached_at
-                    }
-                    # Store result in Redis for other workers to see
-                    self.cache.update_best_price_partial(request_id, result)
-                    return result
-                    
-                return {'error': f"No valid prices for {instance_type} in {region}"}
-            except Exception as e:
-                return {'error': f"{region}: {str(e)}"}
-
-        # Process all regions in parallel
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_to_region = {executor.submit(process_region, region): region for region in self.regions}
+        try:
+            best_price = float('inf')
+            best_region = None
+            best_az = None
+            best_timestamp = None
+            cache_hits = 0
+            cache_misses = 0
+            errors = []
             
-            for future in as_completed(future_to_region):
-                region = future_to_region[future]
-                try:
-                    result = future.result()
-                    processed_regions_set.add(region)
-                    
-                    if 'error' in result:
-                        errors.append(result['error'])
-                        continue
-                    
-                    if result['price'] < best_price:
-                        best_price = result['price']
-                        best_region = result['region']
-                        best_az = result['availability_zone']
-                        best_price_data = result
+            # Use ThreadPoolExecutor for parallel price checks
+            with ThreadPoolExecutor(max_workers=10) as executor:
+                future_to_region = {
+                    executor.submit(self.get_spot_price, instance_type, region): region
+                    for region in self.regions
+                }
+                
+                for future in as_completed(future_to_region):
+                    region = future_to_region[future]
+                    try:
+                        result = future.result()
+                        if result.get('error'):
+                            errors.append({
+                                'region': region,
+                                'error': result['error']
+                            })
+                            continue
+
+                        # Track cache hits/misses
+                        if result.get('source') == 'cache':
+                            cache_hits += 1
+                        else:
+                            cache_misses += 1
                         
-                except Exception as e:
-                    errors.append(f"{region}: {str(e)}")
+                        # Find the lowest price across all AZs in this region
+                        for az, price in result.get('prices', {}).items():
+                            price = float(price)
+                            if price < best_price:
+                                best_price = price
+                                best_region = region
+                                best_az = az
+                                best_timestamp = result.get('aws_timestamp')
 
-        # Get results from other workers via Redis
-        all_results = self.cache.get_best_price_results(request_id) or []
-        for result in all_results:
-            try:
-                if isinstance(result, dict) and 'price' in result and 'region' in result:
-                    processed_regions_set.add(result['region'])
-                    price = float(result['price'])
-                    if price < best_price:
-                        best_price = price
-                        best_region = result['region']
-                        best_az = result['availability_zone']
-                        best_price_data = result
-            except (ValueError, TypeError, KeyError) as e:
-                logging.error(f"Invalid result data: {e}")
-                continue
+                    except Exception as e:
+                        errors.append({
+                            'region': region,
+                            'error': str(e)
+                        })
 
-        # Check if we've processed all regions
-        unprocessed_regions = all_regions - processed_regions_set
-        if unprocessed_regions:
-            logging.warning(f"Some regions were not processed: {unprocessed_regions}")
-            errors.append(f"Regions not processed: {', '.join(sorted(unprocessed_regions)[:5])}")
-            if len(unprocessed_regions) > 5:
-                errors.append(f"and {len(unprocessed_regions) - 5} more")
+            if best_region is None:
+                error_msg = '; '.join([f"{e['region']}: {e['error']}" for e in errors])
+                raise ValueError(f"Failed to get prices: {error_msg}")
 
-        # Only return error if we have no valid prices
-        if not best_price_data:
-            error_msg = "; ".join(errors[:5])
-            if len(errors) > 5:
-                error_msg += f" and {len(errors) - 5} more errors"
-            return {'error': error_msg}
+            return {
+                'instance_type': instance_type,
+                'region': best_region,
+                'az': best_az,
+                'price': best_price,
+                'aws_timestamp': best_timestamp,  # Original AWS price timestamp
+                'timestamp': datetime.now(timezone.utc).isoformat(),  # When we got this result
+                'cache_stats': {
+                    'hits': cache_hits,
+                    'misses': cache_misses,
+                    'total': cache_hits + cache_misses
+                },
+                'errors': errors if errors else None
+            }
 
-        # Return the best price we found
-        return best_price_data
+        except Exception as e:
+            logging.error(f"Error getting best price for {instance_type}: {e}")
+            raise

@@ -10,7 +10,7 @@ import multiprocessing
 import socket
 
 from spot_price_service import SpotPriceService
-from redis_cache import RedisCache
+from redis_cache import RedisCache, TaskPriority, TaskStatus
 
 # Get configuration
 UPDATE_INTERVAL = int(os.environ.get('UPDATE_INTERVAL', 300))  # 5 minutes default
@@ -92,80 +92,15 @@ spot_service.total_workers = TOTAL_WORKERS
 def is_primary_worker():
     """Check if this is the primary worker process using Redis lock."""
     try:
-        # First verify Redis connection
-        if not redis_cache.client.ping():
-            logging.error("Redis connection failed")
-            return False
-
-        lock_key = "spot_price_leader_lock"
-        my_id = str(os.getpid())
-        
-        # Try to acquire the lock with NX and expiry
-        acquired = redis_cache.set(lock_key, my_id, ex=30, nx=True)
-        
-        if acquired:
-            logging.info(f"Worker {my_id} acquired leadership")
+        worker_num = get_worker_number()
+        if worker_num == 0:
+            logging.debug("This is the primary worker")
             return True
-            
-        # If we didn't acquire it, check if we're already the leader
-        current_leader = redis_cache.get(lock_key)
-        if current_leader == my_id:
-            # Refresh our lock
-            redis_cache.set(lock_key, my_id, ex=30)
-            return True
-            
+        logging.debug(f"This is worker {worker_num}")
         return False
-        
     except Exception as e:
-        logging.error(f"Error in leader election: {e}")
+        logging.error(f"Error checking primary worker: {e}")
         return False
-
-def update_prices():
-    """Background task to update spot prices for all configured instance types."""
-    logging.info("Price update process started")
-    worker_num = get_worker_number()
-    
-    while True:
-        try:
-            # Register worker and get assignment
-            redis_cache.register_worker(str(worker_num))
-            total_workers = redis_cache.get_worker_count()
-            regions = spot_service.get_regions()
-            my_regions = redis_cache.assign_worker_regions(str(worker_num), total_workers, regions)
-            
-            if not my_regions:
-                logging.debug("No regions assigned, waiting...")
-                time.sleep(10)
-                continue
-
-            logging.info(f"Assigned regions: {my_regions}")
-            
-            # Update prices for assigned regions
-            for instance_type in INSTANCE_TYPES:
-                if not instance_type.strip():
-                    continue
-                
-                logging.info(f"Updating prices for {instance_type}")
-                for region in my_regions:
-                    try:
-                        spot_service.get_spot_price(instance_type.strip(), region)
-                    except Exception as e:
-                        logging.error(f"Error updating price for {instance_type} in {region}: {e}")
-            
-            # Send heartbeat and sleep
-            redis_cache.heartbeat(str(worker_num))
-            logging.info("Finished updating assigned regions")
-            time.sleep(UPDATE_INTERVAL)
-            
-        except Exception as e:
-            logging.error(f"Error in price update process: {e}")
-            time.sleep(10)
-
-# Start the background update process in each worker
-if INSTANCE_TYPES and INSTANCE_TYPES[0]:
-    logging.info("Starting price update process")
-    update_process = threading.Thread(target=update_prices, daemon=True)
-    update_process.start()
 
 # Security and rate limiting configuration
 RATE_LIMIT = int(os.environ.get('RATE_LIMIT', '60'))  # requests per minute
@@ -327,6 +262,26 @@ def list_endpoints():
                         'aws': 'AWS connection status'
                     }
                 }
+            },
+            '/spot-prices/status/<task_id>': {
+                'methods': ['GET'],
+                'description': 'Get the status of a spot price task',
+                'parameters': {
+                    'task_id': 'The ID of the task'
+                },
+                'response': {
+                    'status': 'The status of the task',
+                    'message': 'A message describing the status',
+                    'queue_position': 'The position of the task in the queue (if applicable)'
+                }
+            },
+            '/spot-prices/metrics': {
+                'methods': ['GET'],
+                'description': 'Get current queue metrics',
+                'response': {
+                    'queue_length': 'The current length of the queue',
+                    'processing_time': 'The average processing time of tasks in the queue'
+                }
             }
         }
     })
@@ -358,21 +313,75 @@ def get_spot_prices(region, instance_type):
 def get_best_price(instance_type):
     """Get the best spot price across all regions for an instance type."""
     try:
-        logging.info(f"Finding best price for {instance_type}")
-        # Create a new service instance for each request to ensure thread safety
-        service = SpotPriceService(cache=redis_cache)
-        service.worker_id = get_worker_number()
-        service.total_workers = TOTAL_WORKERS
-        price_data = service.get_best_price(instance_type)
+        logging.info(f"Getting best price for {instance_type}")
         
-        if price_data.get('error'):
-            return format_error_response(price_data['error'], 404)
+        # Enqueue task with high priority
+        task_data = {
+            'instance_type': instance_type,
+            'source': 'api_request'
+        }
+        
+        task_id = redis_cache.enqueue_task(
+            'get_best_price',
+            task_data,
+            TaskPriority.HIGH
+        )
+        logging.info(f"Enqueued task {task_id} with priority {TaskPriority.HIGH}")
+        
+        try:
+            # Wait for result with timeout
+            result = redis_cache.wait_for_task_result(task_id, timeout=30)
+            if result:
+                response = make_response(jsonify(result))
+                return add_security_headers(response)
+            else:
+                return format_error_response("Request timed out", 408)
+        except TimeoutError:
+            return format_error_response("Request timed out", 408)
+        except Exception as task_error:
+            return format_error_response(str(task_error))
             
-        response = make_response(jsonify(price_data))
-        return add_security_headers(response)
+    except Exception as e:
+        logging.error(f"Error getting best price for {instance_type}: {e}")
+        return format_error_response(str(e))
+
+@app.route('/spot-prices/status/<task_id>', methods=['GET', 'OPTIONS'])
+@rate_limit
+def get_task_status(task_id):
+    """Get the status of a spot price task."""
+    try:
+        task = redis_cache.get_task_status(task_id)
+        if not task:
+            return format_error_response("Task not found", 404)
+            
+        response = {
+            'status': task['status'],
+            'task_id': task['task_id'],
+            'type': task['type'],
+            'created_at': task['created_at'],
+            'updated_at': task['updated_at']
+        }
+        
+        if task['status'] == TaskStatus.COMPLETED:
+            response['result'] = task['result']
+        elif task['status'] == TaskStatus.FAILED:
+            response['error'] = task['error']
+            
+        return jsonify(response)
         
     except Exception as e:
-        logging.error(f"Error in get_best_price: {e}")
+        logging.error(f"Error getting task status: {e}")
+        return format_error_response(str(e))
+
+@app.route('/spot-prices/metrics', methods=['GET', 'OPTIONS'])
+@rate_limit
+def get_queue_metrics():
+    """Get current queue metrics."""
+    try:
+        metrics = redis_cache.get_queue_metrics()
+        return jsonify(metrics)
+    except Exception as e:
+        logging.error(f"Error getting queue metrics: {e}")
         return format_error_response(str(e))
 
 @app.route('/health', methods=['GET', 'OPTIONS'])
