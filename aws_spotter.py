@@ -79,6 +79,7 @@ class SpotPriceConfig:
     detailed: bool
     json_mode: bool
     no_graph: bool
+    availability_zone: Optional[str] = None
 
     def __post_init__(self):
         if self.regions is None:
@@ -165,12 +166,25 @@ class SpotPriceAnalyzer:
         """Fetch spot price history for a specific region."""
         try:
             ec2_client = self.session.client('ec2', region_name=region)
-            response = ec2_client.describe_spot_price_history(
+            end_time = datetime.now(timezone.utc)
+            start_time = end_time - timedelta(days=self.config.days)
+
+            filters = [{'Name': 'instance-type', 'Values': [self.config.instance_type]}]
+            if self.config.availability_zone:
+                filters.append({'Name': 'availability-zone', 'Values': [self.config.availability_zone]})
+
+            paginator = ec2_client.get_paginator('describe_spot_price_history')
+            spot_prices = []
+
+            for page in paginator.paginate(
+                StartTime=start_time,
+                EndTime=end_time,
                 InstanceTypes=[self.config.instance_type],
-                ProductDescriptions=["Linux/UNIX"],
-                StartTime=datetime.now(timezone.utc) - timedelta(days=self.config.days),
-            )
-            return response['SpotPriceHistory']
+                ProductDescriptions=['Linux/UNIX'],
+                Filters=filters
+            ):
+                spot_prices.extend(page['SpotPriceHistory'])
+            return spot_prices
         except botocore.exceptions.ClientError as e:
             error_code = e.response['Error']['Code']
             if error_code == 'InvalidParameterValue':
@@ -546,6 +560,7 @@ def main():
               %(prog)s --days 30 --regions eu-west-1,us-east-1 # Last 30 days in multiple regions
               %(prog)s --json                                  # Output JSON data for programmatic use
               %(prog)s --no-graph                              # Do not display the price graph
+              %(prog)s -z us-east-1a                           # Filter by availability zone
         """)
     )
 
@@ -564,6 +579,9 @@ def main():
                       help='Output results in JSON format')
     parser.add_argument('--no-graph', action='store_true',
                       help='Do not display the price graph')
+    parser.add_argument('-z', '--availability-zone', 
+                       help='Specific availability zone to search in (e.g., us-east-1a)',
+                       type=str)
 
     try:
         args = parser.parse_args()
@@ -583,7 +601,8 @@ def main():
             profile=args.profile,
             detailed=args.detailed,
             json_mode=args.json,
-            no_graph=args.no_graph
+            no_graph=args.no_graph,
+            availability_zone=args.availability_zone
         )
 
         if config.days <= 0:
